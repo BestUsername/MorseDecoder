@@ -1,31 +1,42 @@
 /*
  * Morse-decoder
+ * 
  * Based off Morse-decodeerder by Demented hacker in 2016
- * https://www.instructables.com/id/Arduino-Morse-Decoder/
- * (Translated by google)
+ * 1) https://www.instructables.com/id/Arduino-Morse-Decoder/
+ * 
  * Changed LCD to use 1602 using 
- * http://www.dreamdealer.nl/tutorials/connecting_a_1602a_lcd_display_and_a_light_sensor_to_arduino_uno.html
+ * 2) http://www.dreamdealer.nl/tutorials/connecting_a_1602a_lcd_display_and_a_light_sensor_to_arduino_uno.html
+ * 
  * Changed to I2C using (includes information to install library and find the I2C address for your adapter)
- * https://create.arduino.cc/projecthub/akshayjoseph666/interface-i2c-16x2-lcd-with-arduino-uno-just-4-wires-273b24
+ * 3) https://create.arduino.cc/projecthub/akshayjoseph666/interface-i2c-16x2-lcd-with-arduino-uno-just-4-wires-273b24
  */
 
 #include <Wire.h>
 #include <LiquidCrystal_I2C.h>
 
 // Connect a tactile switch (or signal key) between pin 5 of the Arduino and GND.
-// Connect a LED between pin 6 and GND
-// And connect a buzzer between Arduino pin 7 and GND.
+// Connect a LED between pin 6 and GND (or change the pin to LED_BUILTIN or 13 to use the on-board LED)
+// Connect a buzzer between Arduino pin 7 and GND.
+// Connect the 4 pins of the LCD to GND(GND), 5V(VCC), A4(SDA) and A5(SCL)
 // Then you can signal with the switch. View the decoded Morse code in the serial monitor.
 
-#define KEY 5
-#define LED 6 // can use LED_BUILTIN for pin 13 which also uses the on-board LED
-#define BUZZER 7
+#define KEY_PIN 5
+#define LED_PIN 6
+#define BUZZER_PIN 7
 
 
+#define LCDADDRESS 0x27 // default address - use link 3) in the header to detect the address
 #define LCDWIDTH 16 // 1602 is 16 characters wide
 #define LCDHEIGHT 2 // 1602 is 02 characters tall
 
-LiquidCrystal_I2C lcd(0x27, 16, 2);
+// Global variables
+LiquidCrystal_I2C lcd(LCDADDRESS, LCDWIDTH, LCDHEIGHT);
+float dash_length = 200.0;
+boolean PrevS = false;
+long tStartTeken, tStartPauze;
+boolean S;
+String kar = "";
+int y = 0, x = 0;
 
 void setup() {
   lcd.begin();
@@ -33,38 +44,32 @@ void setup() {
   lcd.clear();
   lcd.setCursor(0,0);
   
-  pinMode(KEY, INPUT_PULLUP);
-  pinMode(LED, OUTPUT);
-  pinMode(BUZZER, OUTPUT);
+  pinMode(KEY_PIN, INPUT_PULLUP);
+  pinMode(LED_PIN, OUTPUT);
+  pinMode(BUZZER_PIN, OUTPUT);
   
   Serial.begin(115200);
   print("Morse:");
 }
 
-float dash_length = 200.0;
-boolean PrevS = false;
-long tStartTeken, tStartPauze;
-boolean S;
-String kar = "";
-int y = 0, x = 0;
 void loop() {
-  S = !digitalRead(KEY);
+  S = !digitalRead(KEY_PIN);
 
   if (S) {
     if (S != PrevS) {
       tStartTeken = millis();
       decoderPauze(tStartPauze);
     }
-    digitalWrite(LED, HIGH);
-    digitalWrite(BUZZER, HIGH);
+    digitalWrite(LED_PIN, HIGH);
+    digitalWrite(BUZZER_PIN, HIGH);
   }
   else {
     if (S != PrevS) {
       tStartPauze = millis();
       decoder(tStartTeken);
     }
-    digitalWrite(LED, LOW);
-    digitalWrite(BUZZER, LOW);
+    digitalWrite(LED_PIN, LOW);
+    digitalWrite(BUZZER_PIN, LOW);
   }
 
   if (abs(millis() - tStartPauze) > dash_length * 10) {
@@ -114,10 +119,40 @@ void decoderPauze(long start_time) {
 }
 
 void decoderKar() {
+  // A-Z
   static String letters[] = {
     ".-", "-...", "-.-.", "-..", ".", "..-.", "--.", "....", "..", ".---", "-.-", ".-..", "--", "-.", "---", ".--.", "--.-",
     ".-.", "...", "-", "..-", "...-", ".--", "-..-", "-.--", "--..", "E"
   };
+
+  // 0-9
+  static String numbers[] = {
+    "-----", ".----", "..---", "...--", "....-", ".....", "-....", "--...", "---..", "----."
+  };
+
+  static String punctuation[] = {
+    ".-.-.-", // .
+    "--..--", // ,
+    "..--..", // ?
+    "-.-.-.", // ;
+    "---...", // :
+    "-....-", // - (hyphen)
+    "-..-.",  // / (slash)
+    ".----.", // '
+    ".-..-."  // "
+  };
+
+  static String special[] = {
+    "..--.-", // _ (underscore)
+    ".-.-.",  // + (addition)
+    "-....-", // - (subtraction)
+    "-..-",   // * (multiplication)
+    "---...", // / (division)
+    "-...-",  // = (equals)
+    "-.--.-", // )
+    "-.--."   // (
+  };
+  
   int i = 0;
   while (letters[i] != "E") {
     if (letters[i] == kar) {
