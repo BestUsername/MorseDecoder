@@ -5,27 +5,38 @@
  * (Translated by google)
  * Changed LCD to use 1602 using 
  * http://www.dreamdealer.nl/tutorials/connecting_a_1602a_lcd_display_and_a_light_sensor_to_arduino_uno.html
+ * Changed to I2C using (includes information to install library and find the I2C address for your adapter)
+ * https://create.arduino.cc/projecthub/akshayjoseph666/interface-i2c-16x2-lcd-with-arduino-uno-just-4-wires-273b24
  */
 
 #include <Wire.h>
-#include <LiquidCrystal.h>
+#include <LiquidCrystal_I2C.h>
 
-// Connect a tactile switch (or signal key) between pin 6 of the Arduino and GND.
-// And connect a buzzer between Arduino pin 13 and GND.
+// Connect a tactile switch (or signal key) between pin 5 of the Arduino and GND.
+// Connect a LED between pin 6 and GND
+// And connect a buzzer between Arduino pin 7 and GND.
 // Then you can signal with the switch. View the decoded Morse code in the serial monitor.
 
-#define KEY 6
-#define BUZZER 13
+#define KEY 5
+#define LED 6 // can use LED_BUILTIN for pin 13 which also uses the on-board LED
+#define BUZZER 7
+
 
 #define LCDWIDTH 16 // 1602 is 16 characters wide
 #define LCDHEIGHT 2 // 1602 is 02 characters tall
 
-LiquidCrystal lcd(7, 8, 9, 10, 11, 12);
+LiquidCrystal_I2C lcd(0x27, 16, 2);
 
 void setup() {
-  lcd.begin(LCDWIDTH, LCDHEIGHT);
+  lcd.begin();
+  lcd.backlight();
+  lcd.clear();
+  lcd.setCursor(0,0);
+  
   pinMode(KEY, INPUT_PULLUP);
+  pinMode(LED, OUTPUT);
   pinMode(BUZZER, OUTPUT);
+  
   Serial.begin(115200);
   print("Morse:");
 }
@@ -44,6 +55,7 @@ void loop() {
       tStartTeken = millis();
       decoderPauze(tStartPauze);
     }
+    digitalWrite(LED, HIGH);
     digitalWrite(BUZZER, HIGH);
   }
   else {
@@ -51,6 +63,7 @@ void loop() {
       tStartPauze = millis();
       decoder(tStartTeken);
     }
+    digitalWrite(LED, LOW);
     digitalWrite(BUZZER, LOW);
   }
 
@@ -119,14 +132,10 @@ void decoderKar() {
   kar = "";
 }
 
-void blank() {
-  lcd.clear();
-}
-
 void print(char s) {
   Serial.print(s);
   if (x == 0 && y == 0) {
-    blank();
+    lcd.clear();
   }
   lcd.setCursor(x, y);
   lcd.print(s);
