@@ -29,20 +29,49 @@
 #define LCDWIDTH 16 // 1602 is 16 characters wide
 #define LCDHEIGHT 2 // 1602 is 02 characters tall
 
+#define CHARACTER_COUNT 53 //how many characters we can decode - used for array length
+
 // Global variables
-LiquidCrystal_I2C lcd(LCDADDRESS, LCDWIDTH, LCDHEIGHT);
-float dash_length = 200.0;
-boolean PrevS = false;
-long tStartTeken, tStartPauze;
-boolean S;
-String kar = "";
-int y = 0, x = 0;
+LiquidCrystal_I2C g_lcd(LCDADDRESS, LCDWIDTH, LCDHEIGHT);
+boolean g_key_down;
+boolean g_key_down_previous = false;
+int     g_cursor_x = 0;
+int     g_cursor_y = 0;
+float   g_dash_length = 200.0;
+long    g_signal_start_time;
+long    g_silence_start_time;
+String  g_current_char_code = "";
+String  g_characters[CHARACTER_COUNT][2] = {
+  {"A", ".-"}, {"B", "-..."}, {"C", "-.-."}, {"D", "-.."}, {"E", "."}, {"F", "..-."}, {"G", "--."},
+  {"H", "...."}, {"I", ".."}, {"J", ".---"}, {"K", "-.-"}, {"L", ".-.."}, {"M", "--"}, {"N", "-."},
+  {"O", "---"}, {"P", ".--."}, {"Q", "--.-"}, {"R", ".-."}, {"S", "..."}, {"T", "-"}, {"U", "..-"},
+  {"V", "...-"}, {"W", ".--"}, {"X", "-..-"}, {"Y", "-.--"}, {"Z", "--.."},
+  {"0", "-----"}, {"1", ".----"}, {"2", "..---"}, {"3", "...--"}, {"4", "....-"}, 
+  {"5", "....."}, {"6", "-...."}, {"7", "--..."}, {"8", "---.."}, {"9", "----."},
+  {".", ".-.-.-"},
+  {",", "--..--"},
+  {"?", "..--.."},
+  {";", "-.-.-."},
+  {":", "---..."},
+  {"-", "-....-"},  //hyphen
+  {"/", "-..-."},   //slash
+  {"'", ".----."},  //single quote
+  {"\"", ".-..-."}, //double quote
+  {"_", "..--.-"},  //underscore
+  {"+", ".-.-."},   //addition
+  {"-", "-....-"},  //subtraction
+  {"*", "-..-"},    //multiplication
+  {"/", "---..."},  //division
+  {"=", "-...-"},
+  {")", "-.--.-"},
+  {"(", "-.--."}
+};
 
 void setup() {
-  lcd.begin();
-  lcd.backlight();
-  lcd.clear();
-  lcd.setCursor(0,0);
+  g_lcd.begin();
+  g_lcd.backlight();
+  g_lcd.clear();
+  g_lcd.setCursor(0,0);
   
   pinMode(KEY_PIN, INPUT_PULLUP);
   pinMode(LED_PIN, OUTPUT);
@@ -53,137 +82,108 @@ void setup() {
 }
 
 void loop() {
-  S = !digitalRead(KEY_PIN);
+  g_key_down = !digitalRead(KEY_PIN);
 
-  if (S) {
-    if (S != PrevS) {
-      tStartTeken = millis();
-      decoderPauze(tStartPauze);
+  if (g_key_down) {
+    if (g_key_down != g_key_down_previous) {
+      g_signal_start_time = millis();
+      event_key_down(g_silence_start_time);
     }
     digitalWrite(LED_PIN, HIGH);
     digitalWrite(BUZZER_PIN, HIGH);
   }
   else {
-    if (S != PrevS) {
-      tStartPauze = millis();
-      decoder(tStartTeken);
+    if (g_key_down != g_key_down_previous) {
+      g_silence_start_time = millis();
+      event_key_up(g_signal_start_time);
     }
     digitalWrite(LED_PIN, LOW);
     digitalWrite(BUZZER_PIN, LOW);
   }
 
-  if (abs(millis() - tStartPauze) > dash_length * 10) {
-    decoderPauze(tStartPauze);
+  if (abs(millis() - g_silence_start_time) > g_dash_length * 10) {
+    event_key_down(g_silence_start_time);
   }
 
-  PrevS = S;
+  g_key_down_previous = g_key_down;
 }
 
-void decoder(long start_time) {
+void event_key_up(long start_time) {
   char symbol = '?';
-  long time = abs(millis() - start_time); // Duration of the signal (a point or a line)
-  float dot_length = dash_length / 3.0;
+  long time = abs(millis() - start_time); // Duration of the signal (is dit or dah?)
+  float dot_length = g_dash_length / 3.0;
 
-  if (time <= 2) return; // Denderonderdrukking
+  if (time <= 2) return;
 
   if (time <= dot_length) symbol = '.';
-  else if (time > dash_length) symbol = '-';
-  else if ((time > (dash_length + dot_length) / 1.9) && time <= dash_length) symbol = '-';
+  else if (time > g_dash_length) symbol = '-';
+  else if ((time > (g_dash_length + dot_length) / 1.9) && time <= g_dash_length) symbol = '-';
   else symbol = '.';
 
   if (symbol == '-') {
-    if (time > dash_length) dash_length++;
-    if (time < dash_length) dash_length--;
+    if (time > g_dash_length) g_dash_length++;
+    if (time < g_dash_length) g_dash_length--;
   }
   else if (symbol == '.') {
-    if (time > dash_length / 3.0) dash_length++;
-    if (time < dash_length / 3.0) dash_length--;
+    if (time > g_dash_length / 3.0) g_dash_length++;
+    if (time < g_dash_length / 3.0) g_dash_length--;
   }
-  kar += symbol;
-  //Serial.println(symbol);
+  g_current_char_code += symbol;
 }
 
-void decoderPauze(long start_time) {
-  if (kar == "") return;
+void event_key_down(long start_time) {
+  if (g_current_char_code == "")
+    return;
 
   char symbol = '?';
   long time = abs(millis() - start_time);
-  if (time > dash_length - dash_length / 40) {
-    decoderKar();
-    //Serial.print();
+  if (time > g_dash_length - g_dash_length / 40) {
+    decode_character();
   }
-  if (time > dash_length * 2) {
-    decoderKar();
+  if (time > g_dash_length * 2) {
+    decode_character();
     print(' ');
   }
 }
 
-void decoderKar() {
-  // A-Z
-  static String letters[] = {
-    ".-", "-...", "-.-.", "-..", ".", "..-.", "--.", "....", "..", ".---", "-.-", ".-..", "--", "-.", "---", ".--.", "--.-",
-    ".-.", "...", "-", "..-", "...-", ".--", "-..-", "-.--", "--..", "E"
-  };
-
-  // 0-9
-  static String numbers[] = {
-    "-----", ".----", "..---", "...--", "....-", ".....", "-....", "--...", "---..", "----."
-  };
-
-  static String punctuation[] = {
-    ".-.-.-", // .
-    "--..--", // ,
-    "..--..", // ?
-    "-.-.-.", // ;
-    "---...", // :
-    "-....-", // - (hyphen)
-    "-..-.",  // / (slash)
-    ".----.", // '
-    ".-..-."  // "
-  };
-
-  static String special[] = {
-    "..--.-", // _ (underscore)
-    ".-.-.",  // + (addition)
-    "-....-", // - (subtraction)
-    "-..-",   // * (multiplication)
-    "---...", // / (division)
-    "-...-",  // = (equals)
-    "-.--.-", // )
-    "-.--."   // (
-  };
-  
-  int i = 0;
-  while (letters[i] != "E") {
-    if (letters[i] == kar) {
-      print((char)('A' + i));
-      break;
+void decode_character() {
+  if (g_current_char_code == "")
+    return;
+    
+  boolean found = false;
+  for (int i = 0; i < CHARACTER_COUNT && !found; ++i) {
+    if (g_characters[i][1] == g_current_char_code) {
+      print(g_characters[i][0]);
+      found = true;
     }
-    i++;
   }
-  if (letters[i] == "E") {
-    print(kar);
+  
+  if (!found) {
+    // if we can't decode it, output what we thought we heard for feedback.
+    print(g_current_char_code);
   }
-  kar = "";
+  g_current_char_code = "";
 }
 
+// Prints to the attached LCD screen
 void print(char s) {
   Serial.print(s);
-  if (x == 0 && y == 0) {
-    lcd.clear();
+  if (g_cursor_x == 0 && g_cursor_y == 0) {
+    g_lcd.clear();
   }
-  lcd.setCursor(x, y);
-  lcd.print(s);
-  x++;
-  if (x >= LCDWIDTH) {
-    x = 0;
-    y++;
+  g_lcd.setCursor(g_cursor_x, g_cursor_y);
+  g_lcd.print(s);
+  g_cursor_x++;
+  if (g_cursor_x >= LCDWIDTH) {
+    g_cursor_x = 0;
+    g_cursor_y++;
   }
-  if (y >= LCDHEIGHT) {
-    x=y = 0;
+  if (g_cursor_y >= LCDHEIGHT) {
+    g_cursor_x=g_cursor_y = 0;
   }
-  if (!(x == 0 && y == 0)) {
-    lcd.print('_');
+  // Print an underscore for the current cursor position
+  if (!(g_cursor_x == 0 && g_cursor_y == 0)) {
+    g_lcd.print('_');
   }
 }
 void print(String &s) {
